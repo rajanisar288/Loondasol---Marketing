@@ -34,7 +34,7 @@ export const siteConfig: SiteConfig = {
   isDevelopment: isDev,
   workspaceDevUrl: process.env.NEXT_PUBLIC_WORKSPACE_DEV_URL || 'http://localhost:4200',
   workspaceProdUrl: process.env.NEXT_PUBLIC_WORKSPACE_PROD_URL || 'https://workspace.loondasol.com',
-  apiUrl: process.env.NEXT_PUBLIC_API_URL || (isProd ? 'https://workspace.loondasol.com/api/v1' : 'http://localhost:4000/api/v1'),
+  apiUrl: process.env.NEXT_PUBLIC_API_URL || (isProd ? 'https://api.loondasol.com/api/v1' : 'http://localhost:4000/api/v1'),
   links: {
     twitter: 'https://twitter.com/loondasol',
     github: 'https://github.com/loondasol',
