@@ -141,11 +141,27 @@ export function SignupSplitStepper() {
   const [subscriptionPlan, setSubscriptionPlan] = useState<'STARTER' | 'PRO' | 'ENTERPRISE'>('PRO');
   const [purchasedSeats, setPurchasedSeats] = useState<number>(10);
 
-  // Step 5 Payment
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'invoice' | 'bank'>('card');
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardExpiry, setCardExpiry] = useState('');
-  const [cardCvc, setCardCvc] = useState('');
+  // Step 5 Payment (Stripe exclusive)
+  const paymentMethod = 'card';
+
+  // Email OTP Verification State (matching Angular flow)
+  const [isVerifying, setIsVerifying] = useState<boolean>(false);
+  const [verificationEmail, setVerificationEmail] = useState<string>('');
+  const [verificationCode, setVerificationCode] = useState<string>('');
+  const [isSubmittingVerification, setIsSubmittingVerification] = useState<boolean>(false);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [verificationSuccess, setVerificationSuccess] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState<number>(0);
+  const [cachedSessionTokens, setCachedSessionTokens] = useState<{ token: string; refreshToken?: string } | null>(null);
+
+  // Resend cooldown timer
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   const currentStepInfo = STEPS[currentStep - 1];
 
@@ -315,10 +331,50 @@ export function SignupSplitStepper() {
       const user = data.user;
 
       if (token) {
+        setCachedSessionTokens({ token, refreshToken });
+        saveMarketingSession(token, refreshToken, user);
+      }
+
+      // Seamlessly switch to OTP confirmation screen
+      setVerificationEmail(email.trim().toLowerCase());
+      setIsVerifying(true);
+      setResendCooldown(60);
+      setIsLoading(false);
+    } catch (err: unknown) {
+      setErrorMessage((err as Error).message || 'An error occurred during workspace creation.');
+      setIsLoading(false);
+    }
+  };
+
+  // Submit 6-digit OTP confirmation
+  const submitVerification = async () => {
+    const code = verificationCode.trim();
+    if (code.length !== 6) return;
+
+    setIsSubmittingVerification(true);
+    setVerificationError(null);
+
+    try {
+      const response = await apiFetch(`${siteConfig.apiUrl}/auth/verify-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: verificationEmail, code }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || 'Invalid or expired confirmation code. Please check and retry.');
+      }
+
+      const token = data.accessToken || data.token || cachedSessionTokens?.token;
+      const refreshToken = data.refreshToken || cachedSessionTokens?.refreshToken;
+      const user = data.user;
+
+      if (token) {
         saveMarketingSession(token, refreshToken, user);
 
-        // If card payment was chosen and a plan selected, redirect to Stripe Checkout
-        if (paymentMethod === 'card' && subscriptionPlan) {
+        // If a paid subscription plan was selected, route to Stripe Checkout
+        if (subscriptionPlan) {
           try {
             const checkoutRes = await apiFetch(`${siteConfig.apiUrl}/subscriptions/checkout`, {
               method: 'POST',
@@ -336,11 +392,11 @@ export function SignupSplitStepper() {
               return;
             }
           } catch {
-            // fallback to direct workspace handoff
+            // fallback to direct workspace redirect
           }
         }
 
-        const targetUrl = new URL(getWorkspaceUrl('/dashboard'));
+        const targetUrl = new URL(getWorkspaceUrl('/'));
         targetUrl.searchParams.set('token', token);
         if (refreshToken) {
           targetUrl.searchParams.set('refresh', refreshToken);
@@ -350,8 +406,31 @@ export function SignupSplitStepper() {
         router.push('/login');
       }
     } catch (err: unknown) {
-      setErrorMessage((err as Error).message || 'An error occurred during workspace creation.');
-      setIsLoading(false);
+      setVerificationError((err as Error).message || 'Verification failed. Please check the code.');
+      setIsSubmittingVerification(false);
+    }
+  };
+
+  // Resend 6-digit confirmation code
+  const handleResendCode = async () => {
+    if (resendCooldown > 0) return;
+    setVerificationError(null);
+
+    try {
+      const response = await apiFetch(`${siteConfig.apiUrl}/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: verificationEmail }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to resend confirmation code.');
+      }
+      setVerificationSuccess('A new 6-digit confirmation code has been dispatched to your email.');
+      setResendCooldown(60);
+      setTimeout(() => setVerificationSuccess(null), 5000);
+    } catch (err: unknown) {
+      setVerificationError((err as Error).message || 'Failed to resend confirmation code.');
     }
   };
 
@@ -363,24 +442,132 @@ export function SignupSplitStepper() {
           {/* Top Brand Logo */}
           <BrandLogo size="lg" />
 
-          {/* Heading */}
-          <div className="mt-8 mb-6">
-            <h1 className="text-xl sm:text-[22px] font-bold tracking-tight text-[#1c2c3a]">
-              {currentStepInfo.title}
-            </h1>
-            <p className="mt-1 text-xs text-[#52636f]">
-              {currentStepInfo.subtitle}
-            </p>
-          </div>
+          {/* If Verifying Email, render 6-digit confirmation code view */}
+          {isVerifying ? (
+            <div className="mt-8 space-y-6 text-center py-2 animate-fadeIn">
+              <div className="w-16 h-16 rounded-2xl bg-[#367fa5]/10 text-[#367fa5] flex items-center justify-center mx-auto shadow-inner border border-[#367fa5]/20">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-8 w-8"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.8}
+                    d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                  />
+                </svg>
+              </div>
 
-          {errorMessage && (
-            <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 animate-fadeIn">
-              {errorMessage}
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-[#1c2c3a] tracking-tight">
+                  Verify Your Workspace Email
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-500 mt-2 max-w-sm mx-auto">
+                  We&apos;ve dispatched a 6-digit confirmation code to{' '}
+                  <strong className="text-slate-800 font-semibold">{verificationEmail}</strong>
+                </p>
+              </div>
+
+              {verificationError && (
+                <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600 text-center">
+                  {verificationError}
+                </div>
+              )}
+
+              {verificationSuccess && (
+                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-700 text-center">
+                  {verificationSuccess}
+                </div>
+              )}
+
+              <div className="max-w-xs mx-auto">
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={verificationCode}
+                  onChange={(e) => {
+                    const clean = e.target.value.replace(/[^0-9]/g, '');
+                    setVerificationCode(clean);
+                  }}
+                  placeholder="123456"
+                  className="w-full text-center text-3xl font-bold tracking-[0.4em] py-3.5 px-4 bg-white border-2 border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:border-[#367fa5] focus:ring-4 focus:ring-[#367fa5]/15 transition font-mono shadow-sm"
+                  autoFocus
+                />
+                <p className="text-xs text-slate-400 mt-2">Enter the 6-digit confirmation code</p>
+              </div>
+
+              <div className="space-y-3 max-w-xs mx-auto pt-2">
+                <button
+                  type="button"
+                  onClick={submitVerification}
+                  disabled={verificationCode.length !== 6 || isSubmittingVerification}
+                  className="w-full py-3 px-4 text-xs font-semibold rounded-xl bg-[#263746] hover:bg-[#1c2c3a] text-white shadow-md transition disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isSubmittingVerification ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Verifying...</span>
+                    </>
+                  ) : (
+                    <span>Verify &amp; Enter Workspace &rarr;</span>
+                  )}
+                </button>
+
+                <div className="text-xs text-slate-500 pt-2">
+                  Didn&apos;t receive the email?{' '}
+                  {resendCooldown > 0 ? (
+                    <span className="text-slate-400 font-semibold ml-1">
+                      Resend in {resendCooldown}s
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleResendCode}
+                      className="text-[#367fa5] hover:underline font-semibold ml-1 cursor-pointer"
+                    >
+                      Resend Code
+                    </button>
+                  )}
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsVerifying(false);
+                      setVerificationError(null);
+                    }}
+                    className="text-[11px] text-slate-400 hover:text-slate-600 transition underline cursor-pointer"
+                  >
+                    Change registration email
+                  </button>
+                </div>
+              </div>
             </div>
-          )}
+          ) : (
+            <>
+              {/* Heading */}
+              <div className="mt-8 mb-6">
+                <h1 className="text-xl sm:text-[22px] font-bold tracking-tight text-[#1c2c3a]">
+                  {currentStepInfo.title}
+                </h1>
+                <p className="mt-1 text-xs text-[#52636f]">
+                  {currentStepInfo.subtitle}
+                </p>
+              </div>
 
-          {/* Form Content */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+              {errorMessage && (
+                <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 animate-fadeIn">
+                  {errorMessage}
+                </div>
+              )}
+
+              {/* Form Content */}
+              <form onSubmit={handleSubmit} className="space-y-4">
             {/* STEP 1: Organization & Admin Account */}
             {currentStep === 1 && (
               <>
@@ -795,78 +982,23 @@ export function SignupSplitStepper() {
                   </div>
                 </div>
 
-                {/* Payment Selection */}
-                <div className="space-y-2">
-                  <label className="block text-xs font-semibold text-[#1c2c3a]">
-                    Select Payment Method
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethod('card')}
-                      className={`py-2 px-3 rounded-lg border text-xs font-medium text-center transition ${
-                        paymentMethod === 'card'
-                          ? 'border-[#367fa5] bg-white text-[#367fa5] font-bold shadow-sm'
-                          : 'border-slate-300 bg-[#edf4f7] text-slate-600'
-                      }`}
-                    >
-                      Credit Card
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethod('invoice')}
-                      className={`py-2 px-3 rounded-lg border text-xs font-medium text-center transition ${
-                        paymentMethod === 'invoice'
-                          ? 'border-[#367fa5] bg-white text-[#367fa5] font-bold shadow-sm'
-                          : 'border-slate-300 bg-[#edf4f7] text-slate-600'
-                      }`}
-                    >
-                      Invoicing
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethod('bank')}
-                      className={`py-2 px-3 rounded-lg border text-xs font-medium text-center transition ${
-                        paymentMethod === 'bank'
-                          ? 'border-[#367fa5] bg-white text-[#367fa5] font-bold shadow-sm'
-                          : 'border-slate-300 bg-[#edf4f7] text-slate-600'
-                      }`}
-                    >
-                      Bank Transfer
-                    </button>
+                {/* Payment Method Notice (Stripe Exclusive) */}
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-white space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-[#1c2c3a] flex items-center gap-1.5">
+                      <svg className="w-4 h-4 text-[#367fa5]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                      </svg>
+                      Payment Method
+                    </span>
+                    <span className="text-[10px] font-bold text-[#367fa5] bg-[#367fa5]/10 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                      Stripe Secure
+                    </span>
                   </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    All workspace billing is powered securely by Stripe. After confirming your email with your 6-digit code, you will proceed directly to Stripe Checkout to finalize your subscription.
+                  </p>
                 </div>
-
-                {paymentMethod === 'card' && (
-                  <div className="space-y-2.5 pt-1">
-                    <input
-                      type="text"
-                      required
-                      value={cardNumber}
-                      onChange={(e) => setCardNumber(e.target.value)}
-                      placeholder="Card Number (4242 •••• •••• 4242)"
-                      className="w-full px-4 py-2.5 rounded-xl border border-[#cbd5e1] bg-[#edf4f7] text-xs text-[#1c2c3a] placeholder-[#8c9ba5] focus:outline-none focus:ring-1 focus:ring-[#367fa5]"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="text"
-                        required
-                        value={cardExpiry}
-                        onChange={(e) => setCardExpiry(e.target.value)}
-                        placeholder="MM/YY"
-                        className="w-full px-4 py-2.5 rounded-xl border border-[#cbd5e1] bg-[#edf4f7] text-xs text-[#1c2c3a] placeholder-[#8c9ba5] focus:outline-none focus:ring-1 focus:ring-[#367fa5]"
-                      />
-                      <input
-                        type="text"
-                        required
-                        value={cardCvc}
-                        onChange={(e) => setCardCvc(e.target.value)}
-                        placeholder="CVC"
-                        className="w-full px-4 py-2.5 rounded-xl border border-[#cbd5e1] bg-[#edf4f7] text-xs text-[#1c2c3a] placeholder-[#8c9ba5] focus:outline-none focus:ring-1 focus:ring-[#367fa5]"
-                      />
-                    </div>
-                  </div>
-                )}
 
                 {/* Step 5 Actions: Back & Submit */}
                 <div className="flex items-center justify-between pt-2">
@@ -909,6 +1041,8 @@ export function SignupSplitStepper() {
               </p>
             </div>
           </form>
+          </>
+          )}
         </div>
 
         {/* Footer */}
@@ -936,10 +1070,12 @@ export function SignupSplitStepper() {
           {/* Step Header */}
           <div>
             <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-              Step {currentStep}
+              {isVerifying ? 'Email Verification' : `Step ${currentStep}`}
             </h2>
             <p className="mt-2 text-xs sm:text-sm text-slate-300/90 leading-relaxed max-w-xs">
-              {currentStepInfo.rightSubtitle}
+              {isVerifying
+                ? 'Check your inbox for the 6-digit confirmation code to activate your workspace.'
+                : currentStepInfo.rightSubtitle}
             </p>
           </div>
 
@@ -951,8 +1087,8 @@ export function SignupSplitStepper() {
             {/* 5 Step Nodes */}
             <div className="space-y-7 relative">
               {STEPS.map((step) => {
-                const isActive = step.number === currentStep;
-                const isCompleted = step.number < currentStep;
+                const isActive = !isVerifying && step.number === currentStep;
+                const isCompleted = isVerifying || step.number < currentStep;
 
                 return (
                   <div key={step.number} className="flex items-center gap-4">

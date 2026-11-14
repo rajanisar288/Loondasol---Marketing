@@ -39,7 +39,7 @@ export function LoginForm() {
       if (token) {
         saveMarketingSession(token, refreshToken, user);
 
-        const targetUrl = new URL(getWorkspaceUrl('/dashboard'));
+        const targetUrl = new URL(getWorkspaceUrl('/'));
         targetUrl.searchParams.set('token', token);
         if (refreshToken) {
           targetUrl.searchParams.set('refresh', refreshToken);
