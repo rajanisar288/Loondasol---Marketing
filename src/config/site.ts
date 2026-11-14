@@ -23,7 +23,9 @@ const isDev = process.env.NEXT_PUBLIC_IS_DEVELOPMENT === 'true' || process.env.N
 export const siteConfig: SiteConfig = {
   name: process.env.NEXT_PUBLIC_SITE_NAME || 'Loondasol',
   description: 'Enterprise AI-Powered Company Operations, Attendance, Payroll & Workforce Management Platform.',
-  url: isDev ? (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000') : 'https://loondasol.com',
+  url: isDev
+    ? (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000')
+    : (process.env.NEXT_PUBLIC_SITE_URL || 'https://www.loondasol.com'),
   isDevelopment: isDev,
   workspaceDevUrl: process.env.NEXT_PUBLIC_WORKSPACE_DEV_URL || 'http://localhost:4200',
   workspaceProdUrl: process.env.NEXT_PUBLIC_WORKSPACE_PROD_URL || 'https://workspace.loondasol.com',

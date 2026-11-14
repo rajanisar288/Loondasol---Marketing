@@ -3,7 +3,7 @@ import { Suspense } from 'react';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { JsonLd } from '@/components/seo/json-ld';
-import { getOrganizationSchema, getWebSiteSchema } from '@/lib/seo/structured-data';
+import { getOrganizationSchema, getWebSiteSchema, getSiteNavigationSchema } from '@/lib/seo/structured-data';
 import { constructMetadata } from '@/lib/seo/metadata';
 import './globals.css';
 
@@ -27,6 +27,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <JsonLd data={getOrganizationSchema()} />
         <JsonLd data={getWebSiteSchema()} />
+        <JsonLd data={getSiteNavigationSchema()} />
       </head>
       <body className="flex flex-col min-h-screen bg-[#edf4f7] text-[#344653] antialiased">
         <Suspense fallback={<div className="h-20 bg-white border-b border-[#dbe7ec]" />}>

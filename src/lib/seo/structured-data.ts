@@ -56,6 +56,30 @@ export function getBreadcrumbSchema(items: Array<{ name: string; item: string }>
   };
 }
 
+// getSiteNavigationSchema: informs Google Sitelinks algorithm about main site sections
+export function getSiteNavigationSchema() {
+  const navItems = [
+    { name: 'Sign In', path: '/login', description: 'Access your Loondasol organization workspace' },
+    { name: 'Create Workspace', path: '/signup', description: 'Start 14-day free trial and set up company operations' },
+    { name: 'Services & Modules', path: '/services', description: 'Biometric attendance, shift tracking, and payroll modules' },
+    { name: 'Pricing', path: '/pricing', description: 'Transparent per-seat pricing plans for businesses' },
+    { name: 'Why Choose Us', path: '/why-choose-us', description: 'Enterprise security, regional sharding, and high availability' },
+    { name: 'About Us', path: '/about', description: 'Our company mission, engineering team, and culture' },
+    { name: 'Contact', path: '/contact', description: 'Get in touch with Loondasol sales and enterprise support' },
+  ];
+
+  return {
+    '@context': 'https://schema.org',
+    '@graph': navItems.map((item, index) => ({
+      '@type': 'SiteNavigationElement',
+      '@id': `${siteConfig.url}/#navigation-${index + 1}`,
+      name: item.name,
+      description: item.description,
+      url: `${siteConfig.url}${item.path}`,
+    })),
+  };
+}
+
 // getSoftwareApplicationSchema: returns SoftwareApplication JSON-LD for enterprise SaaS
 export function getSoftwareApplicationSchema() {
   return {
