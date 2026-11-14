@@ -192,6 +192,7 @@ export function SignupSplitStepper() {
 
     try {
       const uploadFormData = new FormData();
+      uploadFormData.append('file', file);
       uploadFormData.append('logo', file);
 
       const response = await apiFetch(`${siteConfig.apiUrl}/upload/logo`, {
@@ -315,6 +316,29 @@ export function SignupSplitStepper() {
 
       if (token) {
         saveMarketingSession(token, refreshToken, user);
+
+        // If card payment was chosen and a plan selected, redirect to Stripe Checkout
+        if (paymentMethod === 'card' && subscriptionPlan) {
+          try {
+            const checkoutRes = await apiFetch(`${siteConfig.apiUrl}/subscriptions/checkout`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                plan: subscriptionPlan,
+              }),
+            });
+            const checkoutData = await checkoutRes.json();
+            if (checkoutRes.ok && checkoutData.url && !checkoutData.isSandbox) {
+              window.location.href = checkoutData.url;
+              return;
+            }
+          } catch {
+            // fallback to direct workspace handoff
+          }
+        }
 
         const targetUrl = new URL(getWorkspaceUrl('/dashboard'));
         targetUrl.searchParams.set('token', token);

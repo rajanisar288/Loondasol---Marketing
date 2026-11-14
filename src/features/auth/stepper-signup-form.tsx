@@ -101,6 +101,7 @@ export function StepperSignupForm() {
     try {
       const uploadData = new FormData();
       uploadData.append('file', file);
+      uploadData.append('logo', file);
 
       const response = await apiFetch(`${siteConfig.apiUrl}/upload/logo`, {
         method: 'POST',
